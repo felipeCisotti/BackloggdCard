@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Backloggd Card</title>
+
+<style>
+body {
+  margin: 0;
+  padding: 20px;
+  background: #0f0f14;
+  color: #fff;
+  font-family: Arial, sans-serif;
+  display: flex;
+  gap: 20px;
+}
+
+.controls {
+  width: 320px;
+  background: #1a1a22;
+  padding: 16px;
+  border-radius: 12px;
+}
+
+label {
+  display: block;
+  margin-top: 12px;
+  font-size: 14px;
+}
+
+input, select, button {
+  width: 100%;
+  margin-top: 6px;
+}
+
+button {
+  padding: 10px;
+  border-radius: 8px;
+  border: none;
+  background: #ff4d6d;
+  color: #fff;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+canvas {
+  border-radius: 16px;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+  touch-action: none;
+}
+</style>
+</head>
+
+<body>
+
+<div class="controls">
+  <h2>Editor</h2>
+
+  <label>Título
+    <input id="title" value="Cairn">
+  </label>
+
+  <label>Estrelas
+    <select id="stars">
+      <option value="1">★☆☆☆☆</option>
+      <option value="2">★★☆☆☆</option>
+      <option value="3">★★★☆☆</option>
+      <option value="4">★★★★☆</option>
+      <option value="5" selected>★★★★★</option>
+    </select>
+  </label>
+
+  <label>Fundo
+    <input type="file" id="bgFile" accept="image/*">
+  </label>
+
+  <label>Capa do jogo
+    <input type="file" id="gameFile" accept="image/*">
+  </label>
+
+  <label>Avatar
+    <input type="file" id="avatarFile" accept="image/*">
+  </label>
+
+  <button onclick="searchGame()">Buscar imagens (RAWG)</button>
+  <button onclick="download()">Exportar</button>
+</div>
+
+<canvas id="canvas" width="720" height="1280"></canvas>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const RAWG_KEY = 'INSIRA SUA KEY AQUI PAIZAO OU PAIZONA (INSERT THE KEY)';
+const HANDLE = 12;
+
+let active = null;
+let action = null;
+let last = {x:0,y:0};
+let startDist = 0;
+
+function layer(type){
+  return {
+    type,
+    img:null,
+    x:100,y:100,w:500,h:500,
+    r:0,
+    selected:false
+  }
+}
+
+const layers = {
+  bg: layer('bg'),
+  game: layer('game'),
+  avatar: layer('avatar')
+};
+
+// fundo começa maior que o canvas (pra enquadrar)
+layers.bg.x = -200;
+layers.bg.y = -200;
+layers.bg.w = 1100;
+layers.bg.h = 1700;
+
+// avatar padrão
+layers.avatar.x = 312;
+layers.avatar.y = 92;
+layers.avatar.w = 96;
+layers.avatar.h = 96;
+
+function loadFile(file, target){
+  const img = new Image();
+  img.onload = ()=>{
+    target.img = img;
+    if(target.type === 'bg'){
+      const scale = Math.max(720/img.width, 1280/img.height);
+      target.w = img.width * scale;
+      target.h = img.height * scale;
+      target.x = (720 - target.w)/2;
+      target.y = (1280 - target.h)/2;
+    }
+    render();
+  };
+  img.src = URL.createObjectURL(file);
+}
+
+document.getElementById('bgFile').onchange = e => loadFile(e.target.files[0], layers.bg);
+document.getElementById('gameFile').onchange = e => loadFile(e.target.files[0], layers.game);
+document.getElementById('avatarFile').onchange = e => loadFile(e.target.files[0], layers.avatar);
+
+async function searchGame(){
+  const q = document.getElementById('title').value;
+  if(!q) return;
+
+  const res = await fetch(`https://api.rawg.io/api/games?key=${RAWG_KEY}&search=${encodeURIComponent(q)}`);
+  const data = await res.json();
+  if(!data.results.length) return;
+
+  const g = data.results[0];
+
+  layers.bg.img = await loadURL(g.background_image);
+  layers.game.img = await loadURL(g.short_screenshots?.[0]?.image || g.background_image);
+
+  render();
+}
+
+function loadURL(url){
+  return new Promise(res=>{
+    const i = new Image();
+    i.crossOrigin="anonymous";
+    i.onload=()=>res(i);
+    i.src=url;
+  });
+}
+
+function drawLayer(l){
+  if(!l.img) return;
+
+  ctx.save();
+  ctx.translate(l.x+l.w/2, l.y+l.h/2);
+  ctx.rotate(l.r);
+
+  if(l.type === 'avatar'){
+    ctx.beginPath();
+    ctx.arc(0,0,l.w/2,0,Math.PI*2);
+    ctx.clip();
+  }
+
+  ctx.drawImage(l.img,-l.w/2,-l.h/2,l.w,l.h);
+  ctx.restore();
+
+  if(l.selected){
+    ctx.strokeStyle='#ff4d6d';
+    ctx.lineWidth=2;
+    ctx.strokeRect(l.x,l.y,l.w,l.h);
+    ctx.fillStyle='#ff4d6d';
+    ctx.fillRect(l.x+l.w-HANDLE/2,l.y+l.h-HANDLE/2,HANDLE,HANDLE);
+  }
+}
+
+function render(){
+  ctx.clearRect(0,0,720,1280);
+  ctx.fillStyle='#111';
+  ctx.fillRect(0,0,720,1280);
+
+  drawLayer(layers.bg);
+  drawLayer(layers.game);
+
+  ctx.fillStyle='rgba(0,0,0,0.4)';
+  ctx.fillRect(0,0,720,1280);
+
+  drawLayer(layers.avatar);
+
+  const title=document.getElementById('title').value;
+  const stars=+document.getElementById('stars').value;
+
+  ctx.textAlign='center';
+  ctx.fillStyle='#cfcfd6';
+  ctx.font='32px Arial';
+  ctx.fillText(title,360,1040);
+
+  ctx.fillStyle='#ff4d6d';
+  ctx.font='48px Arial';
+  ctx.fillText('★'.repeat(stars),360,1080);
+
+  ctx.fillStyle='#fff';
+  ctx.font='28px Arial';
+  ctx.fillText('on Backloggd',360,1140);
+}
+
+function hit(l,x,y){
+  return x>l.x&&x<l.x+l.w&&y>l.y&&y<l.y+l.h;
+}
+
+canvas.onmousedown=e=>{
+  const x=e.offsetX,y=e.offsetY;
+  active=null;
+  Object.values(layers).reverse().forEach(l=>{
+    l.selected=false;
+    if(hit(l,x,y)&&!active){active=l;}
+  });
+
+  if(active){
+    active.selected=true;
+    action =
+      (x>active.x+active.w-HANDLE && y>active.y+active.h-HANDLE)
+      ? 'resize'
+      : e.altKey ? 'rotate' : 'move';
+  }
+
+  last={x,y};
+  render();
+};
+
+canvas.onmousemove=e=>{
+  if(!active||!action) return;
+
+  const dx=e.offsetX-last.x;
+  const dy=e.offsetY-last.y;
+
+  if(action==='move'){ active.x+=dx; active.y+=dy; }
+
+  if(action==='resize'){
+    if(e.shiftKey){
+      const r=active.w/active.h;
+      active.w+=dx;
+      active.h=active.w/r;
+    } else {
+      active.w+=dx;
+      active.h+=dy;
+    }
+  }
+
+  if(action==='rotate'){ active.r+=dx*0.01; }
+
+  last={x:e.offsetX,y:e.offsetY};
+  render();
+};
+
+canvas.onmouseup=()=>action=null;
+canvas.onmouseleave=()=>action=null;
+
+/* TOUCH PINCH */
+canvas.addEventListener('touchstart',e=>{
+  if(e.touches.length===2){
+    startDist=Math.hypot(
+      e.touches[0].clientX-e.touches[1].clientX,
+      e.touches[0].clientY-e.touches[1].clientY
+    );
+  }
+},{passive:false});
+
+canvas.addEventListener('touchmove',e=>{
+  if(e.touches.length===2 && active){
+    const d=Math.hypot(
+      e.touches[0].clientX-e.touches[1].clientX,
+      e.touches[0].clientY-e.touches[1].clientY
+    );
+    const s=d/startDist;
+    active.w*=s;
+    active.h*=s;
+    startDist=d;
+    render();
+  }
+},{passive:false});
+
+function download(){
+  const a=document.createElement('a');
+  a.download='backlog-card.png';
+  a.href=canvas.toDataURL();
+  a.click();
+}
+
+render();
+</script>
+
+</body>
+</html>
