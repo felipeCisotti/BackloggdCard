@@ -5,6 +5,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Backloggd Card</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
   <style>
     :root {
@@ -251,7 +254,7 @@
     </div>
 
     <div class="actions">
-      <button onclick="searchGame()" class="btn btn-secondary">Buscar imagens (RAWG)</button>
+      <button onclick="searchGame()" class="btn btn-secondary" id="btn-search">Buscar imagens (RAWG)</button>
       <button onclick="gerarCard()" class="btn btn-primary" id="btn-gerar">Gerar Card</button>
       <button onclick="download()" class="btn btn-primary" id="btn-exportar" style="display: none;">Exportar</button>
     </div>
@@ -262,10 +265,21 @@
 
 
 
-  <script>
+  <script type="module">
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
-    const RAWG_KEY = import.meta.env.RAWGAPIKEY;
+    
+    // Acesso seguro à variável de ambiente (evita crash se import.meta.env não existir)
+    let RAWG_KEY = "";
+    try {
+      // Tentativa de obter a chave de diferentes formas comuns
+      RAWG_KEY = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.RAWGAPIKEY) 
+                 || window.RAWGAPIKEY 
+                 || "";
+    } catch (e) {
+      console.warn("Aviso: import.meta.env não disponível. Se estiver usando Vite, certifique-se de que a variável RAWGAPIKEY está no seu arquivo .env");
+    }
+
     const HANDLE = 12;
 
     let active = null;
@@ -301,18 +315,30 @@
     layers.avatar.w = 96;
     layers.avatar.h = 96;
 
+    function updateLayerImage(img, target) {
+      target.img = img;
+      if (target.type === 'bg') {
+        const scale = Math.max(720 / img.width, 1280 / img.height);
+        target.w = img.width * scale;
+        target.h = img.height * scale;
+        target.x = (720 - target.w) / 2;
+        target.y = (1280 - target.h) / 2;
+      } else {
+        const ratio = img.width / img.height;
+        // Ajusta a altura baseada na largura atual para manter o aspect ratio
+        target.h = target.w / ratio;
+      }
+    }
+
     function loadFile(file, target) {
+      if (!file) return;
+
       const img = new Image();
       img.onload = () => {
-        target.img = img;
-        if (target.type === 'bg') {
-          const scale = Math.max(720 / img.width, 1280 / img.height);
-          target.w = img.width * scale;
-          target.h = img.height * scale;
-          target.x = (720 - target.w) / 2;
-          target.y = (1280 - target.h) / 2;
-        }
+        updateLayerImage(img, target);
         render();
+        // Se já geramos o card uma vez, mantém ele visível
+        if (canvas.style.display === 'block') render();
       };
       img.src = URL.createObjectURL(file);
     }
@@ -332,18 +358,42 @@
 
     async function searchGame() {
       const q = document.getElementById('title').value;
-      if (!q) return;
+      if (!q) return alert('Digite o nome do jogo primeiro!');
 
-      const res = await fetch(`https://api.rawg.io/api/games?key=${RAWG_KEY}&search=${encodeURIComponent(q)}`);
-      const data = await res.json();
-      if (!data.results.length) return;
+      const btnSearch = document.getElementById('btn-search');
+      const originalText = btnSearch.innerText;
+      btnSearch.innerText = 'Buscando...';
+      btnSearch.disabled = true;
 
-      const g = data.results[0];
+      if (!RAWG_KEY) {
+        console.warn('RAWG_KEY não definida. A busca falhará sem uma chave de API válida.');
+      }
 
-      layers.bg.img = await loadURL(g.background_image);
-      layers.game.img = await loadURL(g.short_screenshots?.[0]?.image || g.background_image);
+      try {
+        const res = await fetch(`https://api.rawg.io/api/games?key=${RAWG_KEY}&search=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        
+        if (!data.results || !data.results.length) {
+          alert('Jogo não encontrado.');
+          return;
+        }
 
-      gerarCard();
+        const g = data.results[0];
+
+        const bgImg = await loadURL(g.background_image);
+        const gameImg = await loadURL(g.short_screenshots?.[0]?.image || g.background_image);
+
+        updateLayerImage(bgImg, layers.bg);
+        updateLayerImage(gameImg, layers.game);
+
+        gerarCard();
+      } catch (err) {
+        console.error(err);
+        alert('Erro ao buscar jogo. Verifique sua conexão ou API Key.');
+      } finally {
+        btnSearch.innerText = originalText;
+        btnSearch.disabled = false;
+      }
     }
 
     function loadURL(url) {
@@ -527,6 +577,12 @@
         canvas.scrollIntoView({ behavior: 'smooth' });
       }
     }
+
+    // Exportando funções para o escopo global para que os onclick do HTML funcionem
+    window.render = render;
+    window.searchGame = searchGame;
+    window.gerarCard = gerarCard;
+    window.download = download;
 
     render();
   </script>
