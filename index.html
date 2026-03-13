@@ -265,7 +265,7 @@
   <script>
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
-    const RAWG_KEY = 'SUAAPIKEYAQUI';
+    const RAWG_KEY = import.meta.env.RAWGAPIKEY;
     const HANDLE = 12;
 
     let active = null;
